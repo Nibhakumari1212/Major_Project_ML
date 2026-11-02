@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fake Job Post Detector</title>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --border: #334155; --text: #e2e8f0;
+    --muted: #94a3b8; --accent: #6366f1; --ok: #22c55e; --bad: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); padding: 24px 16px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 1.7rem; }
+  .sub { color: var(--muted); margin-bottom: 20px; }
+  form, .result {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px;
+  }
+  label { display: block; font-size: .85rem; color: var(--muted); margin: 14px 0 6px; }
+  input[type=text], textarea, select {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    font: inherit;
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 16px; }
+  .checks label { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text); cursor: pointer; }
+  button {
+    margin-top: 20px; width: 100%; padding: 12px; border: 0; border-radius: 10px;
+    background: var(--accent); color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: wait; }
+  .result { margin-top: 20px; display: none; }
+  .badge { display: inline-block; padding: 6px 14px; border-radius: 999px; font-weight: 700; }
+  .badge.fake { background: rgba(239,68,68,.15); color: var(--bad); }
+  .badge.real { background: rgba(34,197,94,.15); color: var(--ok); }
+  .bar { height: 10px; background: var(--bg); border-radius: 999px; margin: 14px 0 6px; overflow: hidden; }
+  .fill { height: 100%; width: 0; transition: width .6s ease; }
+  .err { color: var(--bad); }
+  @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🕵️ Fake Job Post Detector</h1>
+  <div class="sub">Paste a job posting's details and check how likely it is to be fraudulent.</div>
+
+  <form id="form">
+    <label for="title">Job title *</label>
+    <input type="text" id="title" required placeholder="e.g. Data Entry Clerk">
+
+    <label for="company_profile">Company profile</label>
+    <textarea id="company_profile"></textarea>
+
+    <label for="description">Description</label>
+    <textarea id="description"></textarea>
+
+    <label for="requirements">Requirements</label>
+    <textarea id="requirements"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="employment_type">Employment type</label>
+        <select id="employment_type"></select>
+      </div>
+      <div>
+        <label for="required_experience">Experience</label>
+        <select id="required_experience"></select>
+      </div>
+      <div>
+        <label for="required_education">Education</label>
+        <select id="required_education"></select>
+      </div>
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="telecommuting"> Remote / telecommuting</label>
+      <label><input type="checkbox" id="has_company_logo"> Has company logo</label>
+      <label><input type="checkbox" id="has_questions"> Has screening questions</label>
+    </div>
+
+    <button type="submit" id="btn">Check this job post</button>
+  </form>
+
+  <div class="result" id="result">
+    <span class="badge" id="badge"></span>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div id="detail" style="color:var(--muted)"></div>
+  </div>
+</div>
+
+<script>
+  const options = {
+    employment_type: ["Unknown", "Full-time", "Part-time", "Contract", "Temporary", "Other"],
+    required_experience: ["Unknown", "Internship", "Entry level", "Associate", "Mid-Senior level", "Director", "Executive", "Not Applicable"],
+    required_education: ["Unknown", "High School or equivalent", "Some High School Coursework", "Some College Coursework Completed",
+      "Vocational", "Vocational - HS Diploma", "Vocational - Degree", "Certification", "Associate Degree",
+      "Bachelor's Degree", "Master's Degree", "Doctorate", "Professional", "Unspecified"]
+  };
+  for (const [id, list] of Object.entries(options)) {
+    document.getElementById(id).innerHTML = list.map(v => `<option>${v}</option>`).join("");
+  }
+
+  const $ = id => document.getElementById(id);
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("btn");
+    btn.disabled = true; btn.textContent = "Analyzing...";
+
+    const payload = {
+      title: $("title").value,
+      company_profile: $("company_profile").value,
+      description: $("description").value,
+      requirements: $("requirements").value,
+      employment_type: $("employment_type").value,
+      required_experience: $("required_experience").value,
+      required_education: $("required_education").value,
+      telecommuting: $("telecommuting").checked ? 1 : 0,
+      has_company_logo: $("has_company_logo").checked ? 1 : 0,
+      has_questions: $("has_questions").checked ? 1 : 0
+    };
+
+    const result = $("result"), badge = $("badge"), fill = $("fill"), detail = $("detail");
+    result.style.display = "block";
+
+    try {
+      const res = await fetch("/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error("Server returned " + res.status);
+      const data = await res.json();
+      const pct = Math.round(data.probability * 100);
+      const fake = data.fraudulent === 1;
+
+      badge.className = "badge " + (fake ? "fake" : "real");
+      badge.textContent = fake ? "⚠️ Likely FAKE" : "✅ Likely genuine";
+      fill.style.background = fake ? "var(--bad)" : "var(--ok)";
+      fill.style.width = pct + "%";
+      detail.className = "";
+      detail.textContent = `Fraud probability: ${pct}%`;
+    } catch (err) {
+      badge.className = "badge"; badge.textContent = "Error";
+      fill.style.width = "0";
+      detail.className = "err";
+      detail.textContent = err.message;
+    } finally {
+      btn.disabled = false; btn.textContent = "Check this job post";
+    }
+  });
+</script>
+</body>
+</html>

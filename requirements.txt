@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pandas 
+joblib
+scikit-learn == 1.9.1
+
+#pip show scikit-learn
